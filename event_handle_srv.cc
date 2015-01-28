@@ -22,9 +22,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifndef __LINUX
+#if defined __WINDOWS || defined WIN32
 #include <WinSock2.h>
-#else
+#elif defined __LINUX || defined __MACX
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <fcntl.h>
@@ -36,13 +36,13 @@
 #include <netdb.h>			//	gethostbyname
 #include <sys/ioctl.h>		//	ioctl
 #include <execinfo.h>
-#endif //__LINUX_
+#endif //   __WINDOWS
 
 #include "event_handle_srv.h"
 #include "reactor_impl_select.h"
 #include "reactor.h"
 
-Event_Handle_Srv::Event_Handle_Srv(Reactor* __reactor,const char* __host,unsigned int __port) : Event_Handle(__reactor),host_(__host),port_(__port)
+Event_Handle_Srv::Event_Handle_Srv(Reactor* __reactor,const easy_char* __host,easy_uint32 __port) : Event_Handle(__reactor),host_(__host),port_(__port)
 {
 	_init();
 	reactor()->reactor_impl()->register_handle(this,get_handle(),kMaskAccept);
@@ -54,11 +54,12 @@ Event_Handle_Srv::~Event_Handle_Srv()
 
 }
 
-int Event_Handle_Srv::handle_input(int __fd)
+easy_int32 Event_Handle_Srv::handle_input(easy_int32 __fd)
 {
+#ifndef __HAVE_IOCP
 	if(__fd == fd_)
 	{
-		int __fd_accept = accept(fd_,NULL,NULL);
+		easy_int32 __fd_accept = accept(fd_,NULL,NULL);
 		if(-1 != __fd_accept)
 		{
 			_set_noblock(__fd_accept);
@@ -71,19 +72,22 @@ int Event_Handle_Srv::handle_input(int __fd)
 		//	read data from system buffer and write to ring buffer, that will reduce a memory copy in every data transform
 		on_read(__fd);
 	}
+#else
+	on_connected(__fd);
+#endif // __HAVE_IOCP
 	return 0;
 }
 
-int Event_Handle_Srv::handle_output(int __fd)
+easy_int32 Event_Handle_Srv::handle_output(easy_int32 __fd)
 {
 #ifdef __DEBUG
 	printf("handle_outputd\n");
 #endif //__DEBUG
 	//	test data, if open it, it will cause something wrong
 #if 0
-	static int __data = 0;
+	static easy_int32 __data = 0;
 	++__data;
-	int __send_size = send(__fd,(char*)&__data,sizeof(int),0);
+	easy_int32 __send_size = send(__fd,(easy_char*)&__data,sizeof(easy_int32),0);
 	if( 0 == __send_size )
 	{
 		perror("error at send");  
@@ -94,19 +98,20 @@ int Event_Handle_Srv::handle_output(int __fd)
 	return -1;
 }
 
-int Event_Handle_Srv::handle_exception(int __fd)
+easy_int32 Event_Handle_Srv::handle_exception(easy_int32 __fd)
 {
 	printf("handle_exception\n");
 	return -1;
 }
 
-int Event_Handle_Srv::handle_close(int __fd)
+easy_int32 Event_Handle_Srv::handle_close(easy_int32 __fd)
 {
+#ifndef __HAVE_IOCP
 #ifdef __DEBUG
 #ifdef __LINUX
-	const int __max_stack_flow = 20;
+	const easy_int32 __max_stack_flow = 20;
 	void* __array[__max_stack_flow];
-	char** __strings;
+	easy_char** __strings;
 	size_t __size = backtrace(__array,__max_stack_flow);
 	printf("backtrace() returned %d addresses\n", (int)__size);
 	__strings = backtrace_symbols(__array,__size);
@@ -121,23 +126,32 @@ int Event_Handle_Srv::handle_close(int __fd)
 		printf("%s\n", __strings[__i]);
 	}
 	//	This __strings is malloc(3)ed by backtrace_symbols(), and must be freed here
-	free (__strings);;
+	free (__strings);
 #endif // __LINUX
-#endif // __DEBUG
 	printf("socket close %d,errno %d\n",__fd,errno);
+#endif // __DEBUG
+#endif // __HAVE_IOCP
 	on_disconnect(__fd);
 	return -1;
 }
 
-int Event_Handle_Srv::handle_timeout(int __fd)
+easy_int32 Event_Handle_Srv::handle_timeout(easy_int32 __fd)
 {
-	printf("handle_timeout\n");
 	return -1;
 }
 
+easy_int32 Event_Handle_Srv::handle_packet( easy_int32 __fd,const easy_char* __packet,easy_int32 __length )
+{
+#ifdef __HAVE_IOCP
+	on_packet(__fd,__packet,__length);
+#endif // __HAVE_IOCP
+	return -1;
+}
+
+
 void Event_Handle_Srv::_init()
 {
-#ifndef __LINUX
+#if defined __WINDOWS || defined WIN32
 	WORD __version_requested = MAKEWORD(2,2);
 	WSADATA __data;
 	if (0 != WSAStartup( __version_requested, &__data))
@@ -152,7 +166,7 @@ void Event_Handle_Srv::_init()
 		WSACleanup();
 		return;
 	}
-#endif //__LINUX
+#endif //__WINDOWS
 	//	the socket that is created will have the overlapped attribute as a default
 	fd_ = socket(AF_INET,SOCK_STREAM,0); 
 	if ( -1 == fd_ )
@@ -166,21 +180,21 @@ void Event_Handle_Srv::_init()
 	__serveraddr.sin_port = htons(port_);  
 #if 1
 	//	get local ip address
-	static const int __name_len = 128;
-	char __name[__name_len] = {0};
+	static const easy_int32 __name_len = 128;
+	easy_char __name[__name_len] = {0};
 	gethostname(__name,__name_len);
 	struct hostent* __host_entry = gethostbyname(__name);
 	if(__host_entry)
 	{
 		printf("hostname: %s \naddress list: \n", __host_entry->h_name);
-		for(int __i = 0; __host_entry->h_addr_list[__i]; __i++) 
+		for(easy_int32 __i = 0; __host_entry->h_addr_list[__i]; __i++) 
 		{
 		  	printf("%s\n", inet_ntoa(*(struct in_addr*)(__host_entry->h_addr_list[__i])));
 		}
 	}
 #endif
 	__serveraddr.sin_addr.s_addr = inet_addr(host_.c_str());
-	int __ret = bind(fd_,(sockaddr*)&__serveraddr,sizeof(sockaddr_in));  
+	easy_int32 __ret = bind(fd_,(sockaddr*)&__serveraddr,sizeof(sockaddr_in));  
 	if ( -1 == __ret )
 	{
 		perror("error at bind");
@@ -197,16 +211,16 @@ void Event_Handle_Srv::_init()
 	_set_reuse_addr(fd_);
 }
 
-void Event_Handle_Srv::_set_noblock(int __fd)
+void Event_Handle_Srv::_set_noblock(easy_int32 __fd)
 {
-#ifndef __LINUX
+#if defined __WINDOWS || defined WIN32
 	unsigned long __non_block = 1;
 	if (SOCKET_ERROR == ioctlsocket(__fd, FIONBIO, &__non_block))
 	{
 		printf("_set_noblock() error at ioctlsocket,error code = %d\n", WSAGetLastError());
 	}
-#else
-	int __opts = fcntl(__fd,F_GETFL);  
+#elif defined __LINUX || defined __MACX
+	easy_int32 __opts = fcntl(__fd,F_GETFL);  
 	if(0 > __opts)  
     	{  
       		perror("error at fcntl(sock,F_GETFL)");  
@@ -218,41 +232,41 @@ void Event_Handle_Srv::_set_noblock(int __fd)
        		perror("error at fcntl(sock,F_SETFL)");  
        		exit(1);  
    	}  
-#endif //__LINUX
+#endif //__WINDOWS
 }
 
 
-void Event_Handle_Srv::_set_reuse_addr(int __fd)
+void Event_Handle_Srv::_set_reuse_addr(easy_int32 __fd)
 {
-	int __option_name = 1;
-	if(setsockopt(__fd, SOL_SOCKET, SO_REUSEADDR, (char*)&__option_name, sizeof(int)) == -1)  
+	easy_int32 __option_name = 1;
+	if(setsockopt(__fd, SOL_SOCKET, SO_REUSEADDR, (easy_char*)&__option_name, sizeof(easy_int32)) == -1)  
 	{  
 		perror("setsockopt SO_REUSEADDR");  
 		exit(1);  
 	}  
 }
 
-void Event_Handle_Srv::_set_no_delay(int __fd)
+void Event_Handle_Srv::_set_no_delay(easy_int32 __fd)
 {
-#ifndef __LINUX
+#if defined __WINDOWS || defined WIN32
 	//	The Nagle algorithm is disabled if the TCP_NODELAY option is enabled 
-	int __no_delay = TRUE;
-	if(SOCKET_ERROR == setsockopt( __fd, IPPROTO_TCP, TCP_NODELAY, (char*)&__no_delay, sizeof(int)))
+	easy_int32 __no_delay = TRUE;
+	if(SOCKET_ERROR == setsockopt( __fd, IPPROTO_TCP, TCP_NODELAY, (easy_char*)&__no_delay, sizeof(int)))
 	{
 		perror("setsockopt TCP_NODELAY ");  
 		exit(1);  
 	}
-#endif //__LINUX
+#endif //__WINDOWS
 }
 
-void Event_Handle_Srv::_get_usable( int __fd, unsigned long& __usable_size)
+void Event_Handle_Srv::_get_usable( easy_int32 __fd, easy_ulong& __usable_size)
 {
-#ifndef __LINUX
+#if defined __WINDOWS || defined WIN32
 	if(SOCKET_ERROR == ioctlsocket(__fd, FIONREAD, &__usable_size))
 	{
 		printf("ioctlsocket failed with error %d\n", WSAGetLastError());
 	}
-#else
+#elif defined __LINUX || defined __MACX
 	if(ioctl(__fd,FIONREAD,&__usable_size))
 	{
 		perror("ioctl FIONREAD");
@@ -261,32 +275,39 @@ void Event_Handle_Srv::_get_usable( int __fd, unsigned long& __usable_size)
 }
 
 
-void Event_Handle_Srv::broadcast(int __fd,const char* __data,unsigned int __length)
+void Event_Handle_Srv::broadcast(easy_int32 __fd,const easy_char* __data,easy_uint32 __length)
 {
 	reactor()->reactor_impl()->broadcast(__fd,__data,__length);
 }
 
-int Event_Handle_Srv::read( int __fd,char* __buf, int __length )
+easy_int32 Event_Handle_Srv::read( easy_int32 __fd,easy_char* __buf, easy_int32 __length, easy_int32 __flags/* = 0*/ )
 {
-	int __recv_size = recv(__fd,__buf,__length,0);
+	if (0 == __length)
+	{
+		return 0;
+	}
+	easy_int32 __recv_size = recv(__fd,__buf,__length,__flags);
+	//	These calls return the number of bytes received, or -1 if an error occurred.  
+	//	The return value will be 0 when the peer has performed an orderly shutdown
 	if(0 == __recv_size)
 	{
+		//	socket close *,errno 11
 		reactor()->reactor_impl()->handle_close(__fd);
 	}
 	else if (-1 == __recv_size)
 	{
-#ifndef __LINUX
+#if defined __WINDOWS || defined WIN32
 		DWORD __last_error = ::GetLastError();
 		if(WSAEWOULDBLOCK  == __last_error)
 		{
 			printf("recv error at %d\n",__last_error);
 		}
-#else
+#elif defined __LINUX || defined __MACX
 		if(EAGAIN == errno || EWOULDBLOCK == errno)
 		{
 			printf("recv errno %d\n",errno);
 		}
-#endif //__LINUX
+#endif //__WINDOWS
 		else
 		{
 			reactor()->reactor_impl()->handle_close(__fd);
@@ -295,18 +316,28 @@ int Event_Handle_Srv::read( int __fd,char* __buf, int __length )
 	return __recv_size;
 }
 
-int Event_Handle_Srv::write( int __fd,const char* __data, int __length )
+easy_int32 Event_Handle_Srv::read_zero_copy(easy_int32 __fd,easy_char* __buf, easy_int32 __length,easy_int32 __flags /*= 0*/)
 {
-	int __send_bytes = send(__fd,__data,__length,0);
+	return read(__fd,__buf,__length,__flags);
+}
+
+easy_int32 Event_Handle_Srv::write( easy_int32 __fd,const easy_char* __data, easy_int32 __length )
+{
+#ifndef __HAVE_IOCP
+	if (0 == __length)
+	{
+		return 0;
+	}
+	easy_int32 __send_bytes = send(__fd,__data,__length,0);
 	if(-1 == __send_bytes)
 	{
-#ifndef __LINUX
+#if defined __WINDOWS || defined WIN32
 		DWORD __last_error = ::GetLastError();
 		if(WSAEWOULDBLOCK  == __last_error)
 		{	
 			printf("send error at %d\n",__last_error);
 		}
-#else
+#elif defined __LINUX || defined __MACX
 		//error happend but EAGAIN and EWOULDBLOCK meams that peer socket have been close
 		//EWOULDBLOCK means messages are available at the socket and O_NONBLOCK  is set on the socket's file descriptor
 		// ECONNRESET means an existing connection was forcibly closed by the remote host
@@ -314,7 +345,7 @@ int Event_Handle_Srv::write( int __fd,const char* __data, int __length )
 		{
 			printf("send errno %d\n",errno);
 		}
-#endif // __LINUX
+#endif // __WINDOWS
 		else
 		{
 		//	close peer socket
@@ -322,7 +353,12 @@ int Event_Handle_Srv::write( int __fd,const char* __data, int __length )
 		}
 	}
 	return __send_bytes;
+#else
+	return reactor()->reactor_impl()->handle_packet(__fd,__data,__length);
+#endif // __HAVE_IOCP
 }
+
+
 
 
 

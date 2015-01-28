@@ -19,4 +19,18 @@
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  THE SOFTWARE.
  ****************************************************************************/
-#define __TINY_NET_VERSION	2.0.0
+#ifndef cli_test_h__
+#define cli_test_h__
+#include "client_impl.h"
+
+class Cli_Test : public Client_Impl
+{
+public:
+	Cli_Test(Reactor* __reactor,const easy_char* __host,easy_uint32 __port = 9876);
+
+	easy_int32 handle_packet(const easy_char* __packet,easy_int32 __length);
+
+	~Cli_Test();
+};
+
+#endif // cli_test_h__

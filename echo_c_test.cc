@@ -23,7 +23,6 @@
 #include <netinet/in.h>		//	sockaddr_in
 #include <strings.h>		//	bzero
 #include <arpa/inet.h>		//	inet_addr
-#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <string.h>
@@ -32,7 +31,8 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdarg.h>
-#include <sys/time.h>
+#include <sys/types.h>		//	getpid
+
 static std::string __random_string[] = 
 {
 	"[0x000085e4][T]AdvertisingIndentitifer: '', IdentifierForVendor: '', DeviceName: 'PC', ModelName: 'x86', SystemName: '', SystemVersion: '', HardwareID: '74d435046509'",
@@ -61,7 +61,7 @@ static std::string __random_string[] =
 
 static int __random_string_size = 22;
 static int __buf_size = 256;
-static int __sleep_time = 1000*100;
+static int __sleep_time = 1000*1000;
 
 void 	_set_noblock(int __fd)
 {
@@ -91,14 +91,8 @@ void output(const char* __fmt,...)
     printf("%s\n",__buf);
 #endif //__DEBUG
 }
-long get_time()
-{
-	struct timeval __timeval;
-	gettimeofday(&__timeval, NULL);
-	return __timeval.tv_usec;
-}
 
-void test_4_time_round_trip(int sock)
+void test_4_transform_monitor(int sock)
 {
 	srand( (unsigned)time(NULL)); 
 	int __random_index = 0;
@@ -120,30 +114,15 @@ void test_4_time_round_trip(int sock)
 		}
 		else
 		{
-			printf("send error,errno = %d,sock %d\n",errno,sock);
+			printf("send error,errno = %d,sock %d pid %d\n",errno,sock,getpid());
 			break;
 		}
-			struct timeval __start_timeval;
-		gettimeofday(&__start_timeval, NULL);
-		long __start_time = __start_timeval.tv_usec;
 		//	receive data
 		unsigned short __length2 = 0;
-		unsigned long __usable_size = 0;
-		if(ioctl(sock,FIONREAD,&__usable_size))
-		{
-			perror("ioctl FIONREAD");
-		}
-		if(__usable_size < __packet_head_size)
-		{
-			//	not enough,continue;
-			usleep(__sleep_time*10);
-			output("#1,__usable_size %lu\n",__usable_size);
-			continue;
-		}
 		int recv_bytes = recv(sock,(void*)&__length2,__packet_head_size,0);
 		if(0 == recv_bytes)
 		{
-			printf("The return value will be 0 when the peer has performed an orderly shutdown,sock %d \n",sock);
+			printf("The return value will be 0 when the peer has performed an orderly shutdown,sock %d pid %d\n",sock,getpid());
 			break;
 		}
 		else if(-1 == recv_bytes)
@@ -151,35 +130,23 @@ void test_4_time_round_trip(int sock)
 			if(EAGAIN == errno || EWOULDBLOCK == errno)
 			{
 				usleep(__sleep_time*10);
-				output("#2\n");
 				continue;
 			}
 			else
 			{
-				printf("recv error,errno = %d,sock %d\n",errno,sock);
+				printf("recv error,errno = %d,sock %d pid %d\n",errno,sock,getpid());
 				break;
 			}
 		}
 		if(__packet_head_size != recv_bytes)
 		{
-			printf(" __packet_head_size error! %d bytes recv,sock %d\n", recv_bytes,sock);
+			printf(" __packet_head_size error! %d bytes recv,sock %d pid %d\n", recv_bytes,sock,getpid());
 		}
 		memset(__recv_buf,0,__buf_size);
-		if(ioctl(sock,FIONREAD,&__usable_size))
-		{
-			perror("ioctl FIONREAD");
-		}
-		if(__usable_size < __length2)
-		{
-			//	not enough,continue;
-			usleep(__sleep_time*10);
-			output("#3\n");
-			continue;
-		}
 		recv_bytes = recv(sock,(void*)__recv_buf,__length2,0);
 		if(0 == recv_bytes)
 		{
-			printf("The return value will be 0 when the peer has performed an orderly shutdown,sock %d \n",sock);
+			printf("The return value will be 0 when the peer has performed an orderly shutdown,sock %d pid %d\n",sock,getpid());
 			break;
 		}
 		else if(-1 == recv_bytes)
@@ -187,28 +154,20 @@ void test_4_time_round_trip(int sock)
 			if(EAGAIN == errno || EWOULDBLOCK == errno)
 			{
 				usleep(__sleep_time*10);
-				output("#4\n");
 				continue;
 			}
 			else
 			{
-				printf("recv error,errno = %d,sock %d\n",errno,sock);
+				printf("recv error,errno = %d,sock %d pid %d\n",errno,sock,getpid());
 				break;
 			}
 		}
-		struct timeval __end_timeval;
-		gettimeofday(&__end_timeval, NULL);
-		long __end_time = __end_timeval.tv_usec;
-		
-		long __time_round_trip = __end_time - __start_time;
-		printf("start time = %ld, end time = %ld,time round trip = %ld\n",__start_time,__end_time,__time_round_trip);
 		output("%d bytes recv: %s",recv_bytes + __packet_head_size,__recv_buf);
 		usleep(__sleep_time);
 	}
 }
 int main(int __arg_num, char** __args)
 {
-	printf("current time = %ld\n",get_time());
 	if(3 != __arg_num)
 	{
 		printf("param error,please input correct param,for example : ./echo_c 192.168.22.61 9876\n");
@@ -219,7 +178,7 @@ int main(int __arg_num, char** __args)
 	int sock = socket(AF_INET,SOCK_STREAM,0);
 	if(-1 == sock)
 	{
-		printf("error at socket,errno = %d\n",errno);
+		printf("error at socket,errno = %d pid %d\n",sock,getpid());
 		exit(1);
 	}
 	struct sockaddr_in clientaddr;
@@ -232,5 +191,7 @@ int main(int __arg_num, char** __args)
 		printf("error at connect,errno = %d\n", errno);
 		exit(1);
 	}
-	test_4_time_round_trip(sock);
+	test_4_transform_monitor(sock);
+	printf("process exit,sock %d pid %d\n",sock,getpid());
+	close(sock);
 }

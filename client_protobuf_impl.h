@@ -24,23 +24,26 @@
 #include "event_handle_cli.h"
 #include "easy_ring_buffer.h"
 #include "easy_allocator.h"
+#include "easy_lock.h"
 
 class Client_Impl : public Event_Handle_Cli
 {
 public:
-	Client_Impl(Reactor* __reactor,const char* __host,unsigned int __port);
+	Client_Impl(Reactor* __reactor,const easy_char* __host,easy_uint32 __port);
 
 	virtual ~Client_Impl();
 
-	void on_read(int __fd);
+	void on_read(easy_int32 __fd);
 
-	virtual int handle_packet(int __fd,unsigned int __packet_id,const std::string& __string_packet) = 0;
+	virtual easy_bool is_proxy_client() { return false; }
+
+	virtual easy_int32 handle_packet(easy_int32 __fd,const std::string& __string_packet) = 0;
 
 private:
 	void	_read_thread();
 
 private:
-	easy::EasyRingbuffer<unsigned char,easy::alloc>* ring_buf_;
+	easy::EasyRingbuffer<easy_uint8,easy::alloc,easy::mutex_lock>* ring_buf_;
 
 };
 

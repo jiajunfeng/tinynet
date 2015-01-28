@@ -19,12 +19,28 @@
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  THE SOFTWARE.
  ****************************************************************************/
-
+#include "cli_test.h"
 #include "reactor.h"
 #include "easy_util.h"
-#include "client_impl.h"
 #include "easy_byte_buffer.h"
 #include "easy_time.h"
+
+Cli_Test::Cli_Test( Reactor* __reactor,const easy_char* __host,easy_uint32 __port /*= 9876*/ )
+	: Client_Impl(__reactor,__host,__port)
+{
+
+}
+
+easy_int32 Cli_Test::handle_packet( const easy_char* __packet,easy_int32 __length )
+{
+	Event_Handle_Cli::write(__packet,__length);
+	return -1;
+}
+
+Cli_Test::~Cli_Test()
+{
+
+}
 
 static std::string __random_string[] = 
 {
@@ -57,7 +73,7 @@ static int __random_string_size = 22;
 int main(int argc, char* argv[])
 {
 	/*
-		g++ -g -Wl,--no-as-needed -std=c++11 -pthread -D__LINUX -D__HAVE_SELECT -o cli_test  reactor.h reactor.cc event_handle.h event_handle_cli.h event_handle_cli.cc reactor_impl.h reactor_impl_select.h reactor_impl_select.cc client_impl.h client_impl.cc cli_test.cc  -I../easy/src/base
+		g++ -g -Wl,--no-as-needed -std=c++11 -pthread -D__LINUX -D__HAVE_SELECT -o ./bin/cli_test  reactor.h reactor.cc event_handle.h event_handle_cli.h event_handle_cli.cc reactor_impl.h reactor_impl_select.h reactor_impl_select.cc client_impl.h client_impl.cc cli_test/cli_test.h cli_test/cli_test.cc  -I../easy/src/base -I.
 	*/
 	if(3 != argc)
 	{
@@ -66,43 +82,39 @@ int main(int argc, char* argv[])
 	}
 	char* __host = argv[1];
 	unsigned int __port = atoi(argv[2]);
+#ifdef __REACTOR_SINGLETON
 	Reactor* __reactor = Reactor::instance();
-	Client_Impl* client_impl_ = new Client_Impl(__reactor,__host,__port);
+#else
+	Reactor* __reactor = new Reactor();
+#endif // __REACTOR_SINGLETON
+	Cli_Test* __cli_test = new Cli_Test(__reactor,__host,__port);
 	
-	int __log_level = 1;
-	int __frame_number = 7;
-	int __guid = 15;
-	int __res_frane_number = 0;
-	int __res_log_level = 0;
-	int __head = 0;
-	//	set head
-	__head |= (__frame_number << 8);
-	__head |= (__log_level);
 	srand(easy::EasyTime::get_cur_sys_time());
 	int __random_index = rand()%__random_string_size;
 	std::string __context = __random_string[__random_index];
-	int __length = __context.size();
-#if 0
+	unsigned short __length = __context.size();
+	static const easy_int32 __head_size = sizeof(easy_uint16);
+#if 1
 	static const int __data_length = 256;
 	unsigned char __data[__data_length] = {};
-	memcpy(__data,&__length,4);
-	memcpy(__data + 4,&__head,4);
-	memcpy(__data + 8,&__guid,4);
-	memcpy(__data + 12,__context.c_str(),__length);
-	client_impl_->write((char*)__data,__length + 12);
+	memcpy(__data,&__length,__head_size);
+	memcpy(__data + __head_size,__context.c_str(),__length);
+	__cli_test->write((char*)__data,__length + __head_size);
 #else
 	easy::EasyByteBuffer	__byte_buffer;
 	__byte_buffer << __length;
-	__byte_buffer << __head;
-	__byte_buffer << __guid;
 	__byte_buffer << __context;
-	client_impl_->write((char*)__byte_buffer.contents(),__byte_buffer.size());
+	__cli_test->write((char*)__byte_buffer.contents(),__byte_buffer.size());
 #endif
 	static const int __sleep_time = 100*1000;
 	while (true)
 	{
 		easy::Util::sleep(__sleep_time);
 	}
+#ifdef __REACTOR_SINGLETON
+	delete __reactor;
+	__reactor = NULL;
+#endif // __REACTOR_SINGLETON
 	return 0;
 }
 

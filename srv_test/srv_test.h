@@ -19,4 +19,29 @@
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  THE SOFTWARE.
  ****************************************************************************/
-#define __TINY_NET_VERSION	2.0.0
+#ifndef srv_test_h__
+#define srv_test_h__
+#include "server_impl.h"
+
+class Srv_Test : public Server_Impl
+{
+public:
+	Srv_Test(Reactor* __reactor,const easy_char* __host = "0.0.0.0",easy_uint32 __port = 9876);
+
+	//	for byte stream, it is the  default way
+	easy_int32 handle_packet(easy_int32 __fd,const easy_char* __packet,easy_int32 __length);
+
+	//	for protobuf,just return
+	easy_int32 handle_packet(easy_int32 __fd,const std::string& __string_packet) { return -1;}
+
+	void connected(easy_int32 __fd);
+
+	void dis_connected(easy_int32 __fd);
+
+	~Srv_Test();
+};
+
+
+#endif // srv_test_h__
+
+

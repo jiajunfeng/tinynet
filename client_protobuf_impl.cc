@@ -22,10 +22,12 @@
 #include <thread>
 #include "client_protobuf_impl.h"
 #include "easy_byte_buffer.h"
+#include "easy_util.h"
 
-Client_Impl::Client_Impl( Reactor* __reactor,const char* __host,unsigned int __port /*= 9876*/ ) : Event_Handle_Cli(__reactor,__host,__port)
+
+Client_Impl::Client_Impl( Reactor* __reactor,const easy_char* __host,easy_uint32 __port /*= 9876*/ ) : Event_Handle_Cli(__reactor,__host,__port)
 {
-	ring_buf_ = new easy::EasyRingbuffer<unsigned char,easy::alloc>(1024*64*100);
+	ring_buf_ = new easy::EasyRingbuffer<unsigned char,easy::alloc,easy::mutex_lock>(1024*8);
 	//	start read thread
 	auto __thread_ = std::thread(CC_CALLBACK_0(Client_Impl::_read_thread,this));
 	__thread_.detach();
@@ -39,12 +41,12 @@ Client_Impl::~Client_Impl()
 
 }
 
-void Client_Impl::on_read( int __fd )
+void Client_Impl::on_read( easy_int32 __fd )
 {
 	if(0)
 	{
-		char __buf[64*1024] = {0};
-		int __recv_size = Event_Handle_Cli::read(__fd,__buf,64*1024);
+		easy_char __buf[64*1024] = {0};
+		easy_int32 __recv_size = Event_Handle_Cli::read(__fd,__buf,64*1024);
 		if(-1 != __recv_size)
 		{
 			ring_buf_->append((const unsigned char*)__buf,__recv_size);
@@ -53,12 +55,12 @@ void Client_Impl::on_read( int __fd )
 	else
 	{
 		//	the follow code is ring_buf's append function actually.
-		unsigned long __usable_size = 0;
+		easy_ulong __usable_size = 0;
 		_get_usable(__fd,__usable_size);
-		int __ring_buf_tail_left = ring_buf_->size() - ring_buf_->wpos();
+		easy_int32 __ring_buf_tail_left = ring_buf_->size() - ring_buf_->wpos();
 		if(__usable_size <= __ring_buf_tail_left)
 		{
-			Event_Handle_Cli::read(__fd,(char*)ring_buf_->buffer() + ring_buf_->wpos(),__usable_size);
+			Event_Handle_Cli::read(__fd,(easy_char*)ring_buf_->buffer() + ring_buf_->wpos(),__usable_size);
 			ring_buf_->set_wpos(ring_buf_->wpos() + __usable_size);
 		}
 		else
@@ -69,16 +71,16 @@ void Client_Impl::on_read( int __fd )
 				Event_Handle_Cli::read(__fd,(char*)ring_buf_->buffer() +  ring_buf_->wpos(),__ring_buf_tail_left);
 				ring_buf_->set_wpos(ring_buf_->size());
 			}
-			int __ring_buf_head_left = ring_buf_->rpos();
-			int __read_left = __usable_size - __ring_buf_tail_left;
+			easy_int32 __ring_buf_head_left = ring_buf_->rpos();
+			easy_int32 __read_left = __usable_size - __ring_buf_tail_left;
 			if(__ring_buf_head_left >= __read_left)
 			{
-				Event_Handle_Cli::read(__fd,(char*)ring_buf_->buffer(),__read_left);
+				Event_Handle_Cli::read(__fd,(easy_char*)ring_buf_->buffer(),__read_left);
 				ring_buf_->set_wpos(__read_left);
 			}
 			else
 			{
-				Event_Handle_Cli::read(__fd,(char*)ring_buf_->buffer(),__ring_buf_head_left);
+				Event_Handle_Cli::read(__fd,(easy_char*)ring_buf_->buffer(),__ring_buf_head_left);
 				ring_buf_->set_wpos(__ring_buf_head_left);
 			}
 		}
@@ -87,32 +89,41 @@ void Client_Impl::on_read( int __fd )
 
 void Client_Impl::_read_thread()
 {
-	static const int __head_size = sizeof(unsigned int);
+	static const easy_int32 __sleep_time = 1000*100;
+	static const easy_int32 __head_size = sizeof(easy_uint32);
 	std::string 	 __string_packet;
 	while (true)
 	{
-		int __packet_length = 0;
-		int __packet_id = 0;
-		unsigned int __packet_head = 0;
-		if(!ring_buf_->pre_read((unsigned char*)&__packet_head,__head_size))
+		easy_uint32 __packet_length = 0;
+		if(!ring_buf_->peek((unsigned char*)&__packet_length,__head_size))
 		{
+			easy::Util::sleep(__sleep_time);
 			continue;
 		}
-		__packet_id = (__packet_head & 0xffff0000) >> 16;
-		__packet_length = __packet_head & 0x0000ffff;
-		if(!__packet_length)
+		easy_uint16 __real_packet_length = __packet_length & 0x0000ffff;
+		easy_uint16 __real_fd = __packet_length >> 16;
+		if(!__real_packet_length)
 		{
 			printf("__packet_length error\n");
 			continue;
 		}
 		__string_packet.clear();
-		if(ring_buf_->read(__string_packet,__packet_length + __head_size))
+		if(ring_buf_->read(__string_packet,__real_packet_length + __head_size))
 		{
-			handle_packet(get_handle(),__packet_id,__string_packet.c_str() + __head_size);
+			if(is_proxy_client())
+			{
+				handle_packet(__real_fd,__string_packet.c_str() + __head_size);
+			}
+			else
+			{
+				handle_packet(get_handle(),__string_packet.c_str() + __head_size);
+			}
 		}
 		else
 		{
+			easy::Util::sleep(__sleep_time);
 			continue;
 		}
+		easy::Util::sleep(__sleep_time);
 	}
 }
